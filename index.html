@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Mavis&rsquo;s Goals</title>
+<style>
+:root{--blue:#1a73e8;--ink:#202124;--mut:#5f6368;--line:#dadce0;--bg:#f6f8fc;--warn:#b06000;--warnbg:#fef7e0}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+.wrap{max-width:760px;margin:0 auto;padding:16px}
+header.top{display:flex;align-items:center;gap:10px;margin:6px 0 14px}
+header.top h1{font-size:22px;margin:0;flex:1}
+header.top input[type=search]{padding:8px 12px;border:1px solid var(--line);border-radius:20px;font-size:14px;width:180px}
+button{cursor:pointer}
+.btn{background:var(--blue);color:#fff;border:0;border-radius:20px;padding:9px 18px;font-size:14px}
+.btn.ghost{background:#fff;color:var(--blue);border:1px solid var(--line)}
+.iconbtn{background:none;border:0;font-size:18px;color:var(--mut);padding:6px}
+.sec{font-size:13px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin:18px 4px 8px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.row{display:flex;align-items:flex-start;gap:10px;padding:12px 14px}
+.row.done .title{text-decoration:line-through;color:var(--mut)}
+.ck{flex:0 0 auto;width:22px;height:22px;margin-top:1px;accent-color:var(--blue);cursor:pointer}
+.main{flex:1;min-width:0}
+.title{font-size:15px;font-weight:600;cursor:pointer}
+.title:hover{color:var(--blue)}
+.titleedit{width:100%;font-size:15px;font-weight:600;padding:6px 8px;border:1px solid var(--blue);border-radius:6px}
+.pulse{font-size:13px;color:var(--mut);margin-top:4px;line-height:1.45}
+.meta{display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.badge{font-size:12px;background:var(--warnbg);color:var(--warn);border-radius:12px;padding:2px 10px;font-weight:600}
+.updated{font-size:12px;color:var(--mut)}
+.chev{background:none;border:0;color:var(--mut);font-size:16px;padding:2px 6px}
+.detail{display:none;border-top:1px solid var(--line);padding:12px 14px;background:#fbfcfe}
+.detail.open{display:block}
+.detail label{font-size:12px;font-weight:700;color:var(--mut);display:block;margin-bottom:6px}
+.detail textarea{width:100%;min-height:90px;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit}
+.detail .actions{margin-top:8px;display:flex;gap:8px}
+#gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;z-index:10}
+#gate .box{background:#fff;border:1px solid var(--line);border-radius:16px;padding:32px;max-width:380px;width:100%;text-align:center}
+#gate h2{margin:0 0 8px;font-size:20px}
+#gate p{color:var(--mut);font-size:14px;margin:0 0 16px}
+#gate input{width:100%;padding:10px 12px;font-size:15px;border:1px solid var(--line);border-radius:8px;margin-bottom:12px}
+#gate .err{color:#c5221f;font-size:13px;min-height:18px;margin-bottom:8px}
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#323232;color:#fff;padding:10px 20px;border-radius:24px;font-size:14px;display:none;z-index:20}
+#addbar{display:flex;gap:8px;margin-bottom:6px}
+#addbar input{flex:1;padding:10px 14px;border:1px solid var(--line);border-radius:24px;font-size:14px}
+.empty{color:var(--mut);text-align:center;padding:32px;font-size:14px}
+</style>
+</head>
+<body>
+<div id="gate">
+  <div class="box">
+    <h2>Mavis&rsquo;s Goals</h2>
+    <p>This page is private to Shao&rsquo;s circle. Enter the shared secret to continue.</p>
+    <div class="err" id="gateerr"></div>
+    <input type="password" id="secret" placeholder="Shared secret" autocomplete="off"/>
+    <button class="btn" id="gatebtn" style="width:100%">Unlock</button>
+  </div>
+</div>
+
+<div class="wrap" id="app" hidden>
+  <header class="top">
+    <h1>Mavis&rsquo;s Goals</h1>
+    <input type="search" id="q" placeholder="Search goals"/>
+    <button class="iconbtn" id="refresh" title="Refresh">&#10227;</button>
+  </header>
+  <div id="addbar">
+    <input id="newtitle" placeholder="Add a goal — type a title and hit Enter"/>
+    <button class="btn" id="addbtn">Add</button>
+  </div>
+  <div id="list"></div>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const CONFIG = {
+  API_KEY: "__SHEETS_API_KEY__",
+  SPREADSHEET_ID: "1SOgHHyKNnD9PeqDkI772nsPqxhMR6tVYsqGeGDFINns",
+  SHEET: "Sheet1",
+  // SHA-256 hex of the shared secret (the secret itself is never in this file)
+  SECRET_HASH: "ee7cea87e03cc4ce0e5d0ed49a595562260fca726a3c73e4ea74836610a28409"
+};
+const COLS = { id:0, done:1, title:2, status:3, attn:4, details:5, updated:6 };
+let ROWS = [];       // {sheetRow, id, done, title, status, attn, details, updated}
+let editing = false;
+
+const $ = s => document.querySelector(s);
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.style.display="block"; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none",2600); }
+async function sha256hex(str){
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+function apiBase(){ return `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG.SPREADSHEET_ID}`; }
+async function gapi(path, method, body){
+  const url = apiBase()+path+(path.includes("?")?"&":"?")+"key="+encodeURIComponent(CONFIG.API_KEY);
+  const r = await fetch(url,{method:method||"GET",headers:{"Content-Type":"application/json"},body:body?JSON.stringify(body):undefined});
+  if(!r.ok){ const t=await r.text(); throw new Error("Sheets API "+r.status+": "+t.slice(0,160)); }
+  return r.json();
+}
+// ---------- secret gate ----------
+async function unlock(){
+  const v = $("#secret").value;
+  if(!v) return;
+  let h = "";
+  try { h = await sha256hex(v); } catch(e){}
+  if(h === CONFIG.SECRET_HASH){
+    try{ sessionStorage.setItem("goals_auth","1"); }catch(e){}
+    $("#gate").style.display="none";
+    $("#app").hidden = false;
+    load();
+  } else {
+    $("#gateerr").textContent = "That secret didn't match — try again.";
+    $("#secret").value=""; $("#secret").focus();
+  }
+}
+$("#gatebtn").addEventListener("click", unlock);
+$("#secret").addEventListener("keydown", e=>{ if(e.key==="Enter") unlock(); });
+
+// ---------- data ----------
+async function load(){
+  try{
+    const d = await gapi(`/values/${CONFIG.SHEET}!A2:G?majorDimension=ROWS`);
+    ROWS = (d.values||[]).map((r,i)=>({
+      sheetRow: i+2,
+      id: r[COLS.id]||"", done: String(r[COLS.done]||"").toUpperCase()==="TRUE",
+      title: r[COLS.title]||"", status: r[COLS.status]||"",
+      attn: r[COLS.attn]||"", details: r[COLS.details]||"", updated: r[COLS.updated]||""
+    }));
+    render();
+  }catch(e){ toast("Couldn't load: "+e.message); }
+}
+async function setCell(sheetRow, colLetter, value){
+  await gapi(`/values/${CONFIG.SHEET}!${colLetter}${sheetRow}?valueInputOption=USER_ENTERED`,
+             "PUT", {values:[[value]]});
+}
+
+// ---------- rendering ----------
+function badge(attn){
+  if(/needs action/i.test(attn)) return `<span class="badge">⚠️ Needs action</span>`;
+  if(/new info/i.test(attn)) return `<span class="badge">🆕 New info</span>`;
+  return "";
+}
+function render(){
+  const q = $("#q").value.trim().toLowerCase();
+  const list = $("#list"); list.innerHTML = "";
+  const groups = [["Needs action", r=>/needs action/i.test(r.attn)], ["All goals", ()=>true]];
+  let shown = 0, seen = new Set();
+  for(const [name, pred] of groups){
+    const items = ROWS.filter(r=>!seen.has(r.sheetRow) && pred(r) &&
+      (!q || (r.title+" "+r.details+" "+r.status).toLowerCase().includes(q)));
+    if(!items.length) continue;
+    const h = document.createElement("div"); h.className="sec"; h.textContent=name; list.appendChild(h);
+    for(const r of items){ seen.add(r.sheetRow); list.appendChild(rowEl(r)); shown++; }
+  }
+  if(!shown){ list.innerHTML = `<div class="empty">No goals match.</div>`; }
+}
+function rowEl(r){
+  const card = document.createElement("div"); card.className = "card";
+  const row = document.createElement("div"); row.className = "row"+(r.done?" done":"");
+  const ck = document.createElement("input");
+  ck.type="checkbox"; ck.className="ck"; ck.checked=r.done; ck.title="Mark done / reopen";
+  ck.addEventListener("change", async ()=>{
+    editing = true;
+    try{ await setCell(r.sheetRow,"B", ck.checked?"TRUE":"FALSE"); r.done=ck.checked; render(); toast(ck.checked?"Checked off":"Reopened"); }
+    catch(e){ toast("Couldn't save: "+e.message); ck.checked=r.done; }
+    editing = false;
+  });
+  const main = document.createElement("div"); main.className="main";
+  const t = document.createElement("div"); t.className="title"; t.textContent=r.title;
+  t.title="Click to edit";
+  t.addEventListener("click", ()=>editTitle(main, r, t));
+  const p = document.createElement("div"); p.className="pulse"; p.textContent=r.status;
+  const meta = document.createElement("div"); meta.className="meta";
+  meta.innerHTML = badge(r.attn) + (r.updated?`<span class="updated">Updated ${esc(r.updated)}</span>`:"");
+  main.append(t,p,meta);
+  const chev = document.createElement("button"); chev.className="chev"; chev.textContent="▾"; chev.title="Details";
+  const det = document.createElement("div"); det.className="detail";
+  det.innerHTML = `<label>Details</label>`;
+  const ta = document.createElement("textarea"); ta.value=r.details;
+  const acts = document.createElement("div"); acts.className="actions";
+  const save = document.createElement("button"); save.className="btn"; save.textContent="Save details";
+  save.addEventListener("click", async ()=>{
+    editing = true;
+    try{ await setCell(r.sheetRow,"F", ta.value); r.details=ta.value; toast("Details saved"); det.classList.remove("open"); }
+    catch(e){ toast("Couldn't save: "+e.message); }
+    editing = false;
+  });
+  acts.appendChild(save); det.append(ta,acts);
+  chev.addEventListener("click", ()=>det.classList.toggle("open"));
+  row.append(ck,main,chev); card.append(row,det);
+  return card;
+}
+function editTitle(main, r, tEl){
+  editing = true;
+  const inp = document.createElement("input");
+  inp.className="titleedit"; inp.value=r.title;
+  tEl.replaceWith(inp); inp.focus(); inp.select();
+  let done=false;
+  const commit = async (save)=>{
+    if(done) return; done=true; editing=false;
+    const v = inp.value.trim();
+    if(save && v && v!==r.title){
+      try{ await setCell(r.sheetRow,"C", v); r.title=v; toast("Title saved"); }
+      catch(e){ toast("Couldn't save: "+e.message); }
+    }
+    render();
+  };
+  inp.addEventListener("keydown", e=>{ if(e.key==="Enter") commit(true); if(e.key==="Escape") commit(false); });
+  inp.addEventListener("blur", ()=>commit(true));
+}
+
+// ---------- add ----------
+async function addGoal(){
+  const inp = $("#newtitle"); const title = inp.value.trim();
+  if(!title) return;
+  editing = true;
+  try{
+    await gapi(`/values/${CONFIG.SHEET}!A:F:append?valueInputOption=USER_ENTERED`,
+               "POST", {values:[["", "FALSE", title, "", "", ""]]});
+    inp.value=""; toast("Goal added — Mavis will pick it up shortly"); load();
+  }catch(e){ toast("Couldn't add: "+e.message); }
+  editing = false;
+}
+$("#addbtn").addEventListener("click", addGoal);
+$("#newtitle").addEventListener("keydown", e=>{ if(e.key==="Enter") addGoal(); });
+$("#q").addEventListener("input", render);
+$("#refresh").addEventListener("click", ()=>{ load(); toast("Refreshed"); });
+
+// auto-refresh every 90s when not editing (picks up Mavis's updates + others' edits)
+setInterval(()=>{ if(!editing && !$("#app").hidden) load(); }, 90000);
+
+// ---------- init ----------
+(function(){
+  let ok=false;
+  try{ ok = sessionStorage.getItem("goals_auth")==="1"; }catch(e){}
+  if(ok){ $("#gate").style.display="none"; $("#app").hidden=false; load(); }
+  else { $("#secret").focus(); }
+})();
+</script>
+</body>
+</html>
